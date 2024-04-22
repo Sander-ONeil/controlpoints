@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Graph Drawing with Spline and Newton Polynomial</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+        .key {
+            font-family: Arial, sans-serif;
+            margin-top: 10px;
+        }
+        .color-box {
+            width: 20px;
+            height: 20px;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        #controls {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <label for="pointsSlider">Number of Points:</label>
+        <input type="range" id="pointsSlider" min="2" max="100" value="5">
+        <span id="numPoints">5</span>
+        <label for="freqslider">frequncy</label>
+        <input type="range" id="freqslider" min="1" max="100" value="3">
+        <span id="freqlabel">3</span>
+    </div>
+    <canvas id="graphCanvas" width="1000" height="1000"></canvas>
+    <div class="key">
+        <div><span class="color-box" style="background-color: red;"></span> Control Points</div>
+        <div><span class="color-box" style="background-color: blue;"></span> Bezier Curve</div>
+        <div><span class="color-box" style="background-color: green;"></span> Newton Polynomial</div>
+        <div><span class="color-box" style="background-color: purple;"></span> Fourier Line</div>
+    </div>
+    <script>
+document.addEventListener('DOMContentLoaded', function() {
+    const canvas = document.getElementById('graphCanvas');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const slider = document.getElementById('pointsSlider');
+    const numPointsLabel = document.getElementById('numPoints');
+    const freqslider = document.getElementById('freqslider');
+    const freqlabel = document.getElementById('freqlabel')
+    let numPoints = parseFloat( slider.value);
+    let points = [];
+    let dx = width / (numPoints+1);
+    let freq = parseFloat(freqslider.value);
+    function generatePoints() {
+        
+        points = [];
+        for (let i = 0; i < numPoints; i++) {
+            let x = (i + 0) * dx;console.log(x)
+            console.log(width / (numPoints +1.0),dx,width,numPoints+1)
+            let y = Math.sin(i * 2 * Math.PI/freq ) * 80 + 155;
+            points.push({x, y});
+        }
+        drawGraph();
+    }
+
+    slider.oninput = function() {
+        numPointsLabel.textContent = this.value;
+        numPoints = parseFloat(this.value)
+        dx = width / ( numPoints+1.0);
+        generatePoints();
+    };
+    freqslider.oninput = function() {
+        freq = parseFloat(this.value);
+        freqlabel.textContent = this.value;
+        generatePoints();
+    };
+
+    generatePoints(parseInt(slider.value)); 
+
+
+    let selectedPoint = null;
+
+
+
+
+    function newtonPolynomial(points) {
+        const n = points.length;
+        const coeffs = new Array(n).fill(0);
+        const a = points.map(p => p.y); // Initial y-values
+
+        for (let j = 0; j < n; j++) {
+            for (let i = n - 1; i >= j; i--) {
+                a[i] = (i === j) ? a[i] : (a[i] - a[i - 1]) / (points[i].x - points[i - j - 1].x);
+            }
+            coeffs[j] = a[j];
+        }
+
+        return function(x) {
+            let result = coeffs[n - 1];
+            for (let i = n - 2; i >= 0; i--) {
+                result = result * (x - points[i].x) + coeffs[i];
+            }
+            return result;
+        };
+    }
+
+    function computeDFT(yValues) {
+    const N = yValues.length;
+    let X = [];
+    for (let k = 0; k < N; k++) {
+        let re = 0;
+        let im = 0;
+        for (let n = 0; n < N; n++) {
+            const phi = (2 * Math.PI * k * n) / N;
+            re += yValues[n] * Math.cos(phi);
+            im -= yValues[n] * Math.sin(phi);
+        }
+        re = re / N;
+        im = im / N;
+        X[k] = { re, im };
+        
+    }
+    //console.log(X)
+    return X;
+}
+function evaluateFourier(X, x, N) {
+    let y = 0;
+    x = x/dx
+    for (let k = 0; k < N; k++) {
+        //x /=dx
+        y += X[k].re * Math.cos(2 * Math.PI * k * x / N) - X[k].im * Math.sin(2 * Math.PI * k * x / N);
+    }
+    return y;
+}
+function drawFourier(X, range, ctx, color = 'purple') {
+    const N = X.length;
+    ctx.beginPath();
+    ctx.moveTo(range[0], evaluateFourier(X, 0, N));
+    for (let x = range[0]; x <= range[1]; x++) {
+        ctx.lineTo(x, evaluateFourier(X, x, N));
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
+
+    
+
+    function drawGraph() {
+        ctx.clearRect(0, 0, width, height); // Clear the canvas
+
+
+        // Draw the Fourier approximation line
+        const yValues = points.map(p => p.y);
+        const fourierCoefficients = computeDFT(yValues);
+
+    drawFourier(fourierCoefficients, [points[0].x, points[points.length - 1].x], ctx);
+
+        // Draw the Newton Polynomial
+
+        const polynomial = newtonPolynomial(points);
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, polynomial(points[0].x));
+        for (let x = points[0].x; x <= points[points.length - 1].x; x += 1) {
+            ctx.lineTo(x, polynomial(x));
+        }
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'green';
+        ctx.stroke();
+
+        // Draw the spline curve
+        if (points.length > 1) {
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length - 2; i++) {
+                let midX = (points[i].x + points[i + 1].x) / 2;
+                let midY = (points[i].y + points[i + 1].y) / 2;
+                ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
+            }
+            // Last two points
+            ctx.quadraticCurveTo(points[points.length - 2].x, points[points.length - 2].y, points[points.length - 1].x, points[points.length - 1].y);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'blue';
+            ctx.stroke();
+        }
+
+        // Draw the connecting lines
+        ctx.beginPath();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'black';
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.stroke();
+
+        // Draw points
+        ctx.fillStyle = 'red';
+        points.forEach(point => {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
+            ctx.fill();
+        });
+    }
+
+    drawGraph();
+
+    function pointHitTest(point, mouseX, mouseY) {
+        const dx = mouseX - point.x;
+        const dy = mouseY - point.y;
+        return dx * dx + dy * dy <= 25; // radius^2 of the point for hit detection
+    }
+
+    canvas.addEventListener('mousedown', function(event) {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
+        selectedPoint = points.find(point => pointHitTest(point, mouseX, mouseY));
+    });
+
+    canvas.addEventListener('mousemove', function(event) {
+        if (!selectedPoint) return;
+        const rect = canvas.getBoundingClientRect();
+        const mouseY = event.clientY - rect.top;
+
+        // Update the y-position of the selected point
+        selectedPoint.y = mouseY;
+        drawGraph();
+    });
+
+    canvas.addEventListener('mouseup', function(event) {
+        selectedPoint = null; // Release the currently selected point
+    });
+
+    canvas.addEventListener('mouseleave', function(event) {
+        selectedPoint = null; // Release the currently selected point if the mouse leaves the canvas
+    });
+});
+    </script>
+</body>
+</html>
